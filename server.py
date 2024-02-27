@@ -14,11 +14,10 @@ CHUNK_SIZE_BYTES = 102400  # 100Кб в байтах
 
 
 async def archive(request, photo_files_path='', sleep_time=None):
-    archive_hash = request.match_info.get('archive_hash', None)
+    archive_hash = request.match_info.get('archive_hash', '')
     archive_directory = os.path.join(photo_files_path, archive_hash)
-    if not os.path.exists(archive_directory):
+    if not archive_hash or not os.path.exists(archive_directory):
         raise web.HTTPNotFound(text="Архив не существует или был удален")
-
     response = web.StreamResponse()
     response.headers['Content-Disposition'] = f'attachment; filename={ZIP_FILE_NAME}'
     await response.prepare(request)
@@ -29,16 +28,15 @@ async def archive(request, photo_files_path='', sleep_time=None):
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        while True:
-            stdout = await zip_process.stdout.read(CHUNK_SIZE_BYTES)
-            if not stdout:
-                logging.debug("Finish sending archive chunk")
-                break
+        stdout = await zip_process.stdout.read(CHUNK_SIZE_BYTES)
+        while stdout:
             logging.debug("Sending archive chunk ...")
             await response.write(stdout)
             if sleep_time:
                 logging.debug(f"Sleep for {sleep_time} sec")
                 await asyncio.sleep(sleep_time)
+            stdout = await zip_process.stdout.read(CHUNK_SIZE_BYTES)
+        logging.debug("Finish sending archive chunk")
     except asyncio.CancelledError:
         logging.debug("Download was interrupted")
         raise
